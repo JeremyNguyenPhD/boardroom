@@ -14,9 +14,8 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - run: npx electron-builder --mac
+      - run: npx electron-builder --mac --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
@@ -31,9 +30,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - run: npx electron-builder --win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npx electron-builder --win --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
