@@ -1,12 +1,12 @@
-# Simple GodMode
+# Boardroom
 
 A split-screen desktop app for using ChatGPT, Claude, Gemini, Grok, Kimi, and DeepSeek side by side. Type once, send to all.
 
 ## Download
 
 Go to [Releases](../../releases/latest) and download:
-- **Mac**: `Simple-GodMode-1.0.0.dmg`
-- **Windows**: `Simple-GodMode-Setup-1.0.0.exe`
+- **Mac**: `Boardroom-1.0.0-universal.dmg`
+- **Windows**: `Boardroom-Setup-1.0.0.exe`
 
 ### System Requirements
 
@@ -20,7 +20,7 @@ macOS may show a warning since the app is not signed. To open:
 2. Select "Open"
 3. Click "Open" in the dialog
 
-Or run in Terminal: `xattr -cr /Applications/Simple\ GodMode.app`
+Or run in Terminal: `xattr -cr /Applications/Boardroom.app`
 
 ## Windows Users
 

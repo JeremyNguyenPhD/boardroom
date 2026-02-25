@@ -1,5 +1,5 @@
 {
-  "name": "simple-godmode",
+  "name": "boardroom",
   "version": "1.0.0",
   "description": "Split-screen interface for ChatGPT, Claude, Gemini, Grok, Kimi, and DeepSeek",
   "main": "src/main.js",
@@ -10,8 +10,8 @@
     "build:win": "electron-builder --win"
   },
   "build": {
-    "appId": "com.simple-godmode.app",
-    "productName": "Simple GodMode",
+    "appId": "com.boardroom.app",
+    "productName": "Boardroom",
     "files": [
       "src/**/*",
       "package.json"
