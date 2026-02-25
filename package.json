@@ -1,0 +1,43 @@
+{
+  "name": "simple-godmode",
+  "version": "1.0.0",
+  "description": "Split-screen interface for ChatGPT, Claude, Gemini, Grok, Kimi, and DeepSeek",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.simple-godmode.app",
+    "productName": "Simple GodMode",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": true,
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^38.2.2",
+    "electron-builder": "^26.0.0"
+  }
+}

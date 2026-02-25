@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Simple GodMode - ChatGPT + Claude + Gemini + Grok + Kimi + DeepSeek</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    #container {
+      display: flex;
+      flex: 1;
+      gap: 2px;
+      background: #333;
+      overflow-x: auto;
+    }
+
+    .webview-panel {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Dynamic widths based on visible panel count - set via JS
+       Account for gap: 2px between panels so total width = 100vw */
+    .webview-panel.width-100 {
+      width: 100vw;
+      min-width: 100vw;
+    }
+
+    .webview-panel.width-50 {
+      width: calc(50vw - 1px);  /* 2 panels: (100vw - 2px gap) / 2 */
+      min-width: calc(50vw - 1px);
+    }
+
+    .webview-panel.width-33 {
+      width: calc(33.333vw - 1.333px);  /* 3 panels: (100vw - 4px gaps) / 3 */
+      min-width: calc(33.333vw - 1.333px);
+    }
+
+    .webview-panel.width-25 {
+      width: calc(25vw - 1.5px);  /* 4 panels: (100vw - 6px gaps) / 4 */
+      min-width: calc(25vw - 1.5px);
+    }
+
+    .nav-controls {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f8f6f3;
+      border-bottom: 1px solid #e5e1da;
+    }
+
+    .nav-btn {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      background: #ffffff;
+      color: #6b5d52;
+      border: 1px solid #e5e1da;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .nav-btn:hover {
+      background: #f0ebe4;
+      border-color: #c29d7c;
+    }
+
+    .nav-btn:active {
+      transform: translateY(1px);
+      background: #e8e1d8;
+    }
+
+    .close-btn {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      background: #ffffff;
+      color: #d65d5d;
+      border: 1px solid #e5e1da;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .close-btn:hover {
+      background: #ffe8e8;
+      border-color: #d65d5d;
+      color: #b94545;
+    }
+
+    .close-btn:active {
+      transform: translateY(1px);
+      background: #ffd6d6;
+    }
+
+    .webview-panel.hidden {
+      display: none;
+    }
+
+    #add-model-container {
+      position: fixed;
+      top: 8px;
+      right: 20px;
+      z-index: 1000;
+    }
+
+    .add-model-btn {
+      padding: 8px 16px;
+      background: #c29d7c;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .add-model-btn:hover {
+      background: #ab8a6b;
+    }
+
+    .add-model-btn:active {
+      transform: translateY(1px);
+    }
+
+    .add-model-btn.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #d4c4b0;
+    }
+
+    #model-dropdown {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 8px;
+      background: white;
+      border: 1px solid #e5e1da;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      min-width: 180px;
+      display: none;
+      overflow: hidden;
+    }
+
+    #model-dropdown.show {
+      display: block;
+    }
+
+    .dropdown-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: background 0.2s;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .dropdown-item:last-child {
+      border-bottom: none;
+    }
+
+    .dropdown-item:hover {
+      background: #f8f6f3;
+    }
+
+    .dropdown-item.disabled {
+      color: #999;
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .dropdown-item.disabled:hover {
+      background: white;
+    }
+
+    .new-chat-btn {
+      padding: 8px 16px;
+      background: #c29d7c;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .new-chat-btn:hover {
+      background: #ab8a6b;
+    }
+
+    .new-chat-btn:active {
+      transform: translateY(1px);
+    }
+
+    webview {
+      flex: 1;
+      width: 100%;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    #input-container {
+      padding: 20px;
+      background: #f5f5f5;
+      border-top: 1px solid #ddd;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #prompt-input {
+      width: 66%;
+      max-width: 900px;
+      padding: 14px 18px;
+      font-size: 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      font-family: inherit;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      transition: all 0.2s;
+    }
+
+    #prompt-input:focus {
+      outline: none;
+      border-color: #c29d7c;
+      box-shadow: 0 0 0 3px rgba(194, 157, 124, 0.1);
+    }
+
+    #submit-btn {
+      padding: 14px 28px;
+      background: #c29d7c;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      transition: all 0.2s;
+    }
+
+    #submit-btn:hover {
+      background: #ab8a6b;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+
+    #submit-btn:active {
+      transform: translateY(1px);
+    }
+  </style>
+</head>
+<body>
+  <div id="add-model-container">
+    <button class="add-model-btn" id="add-model-btn" onclick="toggleModelDropdown()">+ Add Model</button>
+    <div id="model-dropdown">
+      <div class="dropdown-item" onclick="restoreModel('chatgpt')">ChatGPT</div>
+      <div class="dropdown-item" onclick="restoreModel('claude')">Claude</div>
+      <div class="dropdown-item" onclick="restoreModel('gemini')">Gemini</div>
+      <div class="dropdown-item" onclick="restoreModel('grok')">Grok</div>
+      <div class="dropdown-item" onclick="restoreModel('kimi')">Kimi</div>
+      <div class="dropdown-item" onclick="restoreModel('deepseek')">DeepSeek</div>
+    </div>
+  </div>
+
+  <div id="container">
+    <div class="webview-panel" id="chatgpt-panel">
+      <div class="nav-controls">
+        <button class="new-chat-btn" onclick="newChatAll()">+ New Chat</button>
+        <button class="nav-btn" onclick="document.getElementById('chatgpt').goBack()">←</button>
+        <button class="nav-btn" onclick="document.getElementById('chatgpt').goForward()">→</button>
+        <button class="nav-btn" onclick="document.getElementById('chatgpt').reload()">↻</button>
+        <button class="close-btn" onclick="closeModel('chatgpt')">×</button>
+      </div>
+      <webview id="chatgpt" src="https://chatgpt.com/" partition="persist:chatgpt" allowpopups></webview>
+    </div>
+    <div class="webview-panel" id="claude-panel">
+      <div class="nav-controls">
+        <button class="nav-btn" onclick="document.getElementById('claude').goBack()">←</button>
+        <button class="nav-btn" onclick="document.getElementById('claude').goForward()">→</button>
+        <button class="nav-btn" onclick="document.getElementById('claude').reload()">↻</button>
+        <button class="close-btn" onclick="closeModel('claude')">×</button>
+      </div>
+      <webview id="claude" src="https://claude.ai/" partition="persist:claude" allowpopups></webview>
+    </div>
+    <div class="webview-panel hidden" id="gemini-panel">
+      <div class="nav-controls">
+        <button class="nav-btn" onclick="document.getElementById('gemini').goBack()">←</button>
+        <button class="nav-btn" onclick="document.getElementById('gemini').goForward()">→</button>
+        <button class="nav-btn" onclick="document.getElementById('gemini').reload()">↻</button>
+        <button class="close-btn" onclick="closeModel('gemini')">×</button>
+      </div>
+      <webview id="gemini" src="https://gemini.google.com/" partition="persist:gemini" allowpopups></webview>
+    </div>
+    <div class="webview-panel hidden" id="grok-panel">
+      <div class="nav-controls">
+        <button class="nav-btn" onclick="document.getElementById('grok').goBack()">←</button>
+        <button class="nav-btn" onclick="document.getElementById('grok').goForward()">→</button>
+        <button class="nav-btn" onclick="document.getElementById('grok').reload()">↻</button>
+        <button class="close-btn" onclick="closeModel('grok')">×</button>
+      </div>
+      <webview id="grok" src="https://grok.com/c" partition="persist:grok" allowpopups></webview>
+    </div>
+    <div class="webview-panel hidden" id="kimi-panel">
+      <div class="nav-controls">
+        <button class="nav-btn" onclick="document.getElementById('kimi').goBack()">←</button>
+        <button class="nav-btn" onclick="document.getElementById('kimi').goForward()">→</button>
+        <button class="nav-btn" onclick="document.getElementById('kimi').reload()">↻</button>
+        <button class="close-btn" onclick="closeModel('kimi')">×</button>
+      </div>
+      <webview id="kimi" src="https://kimi.moonshot.cn/" partition="persist:kimi" allowpopups></webview>
+    </div>
+    <div class="webview-panel hidden" id="deepseek-panel">
+      <div class="nav-controls">
+        <button class="nav-btn" onclick="document.getElementById('deepseek').goBack()">←</button>
+        <button class="nav-btn" onclick="document.getElementById('deepseek').goForward()">→</button>
+        <button class="nav-btn" onclick="document.getElementById('deepseek').reload()">↻</button>
+        <button class="close-btn" onclick="closeModel('deepseek')">×</button>
+      </div>
+      <webview id="deepseek" src="https://chat.deepseek.com/" partition="persist:deepseek" allowpopups></webview>
+    </div>
+  </div>
+
+  <div id="input-container">
+    <textarea id="prompt-input" placeholder="Type your prompt here... (Cmd+Enter to submit to all)" rows="2"></textarea>
+    <button id="submit-btn">Send to All</button>
+  </div>
+
+  <script>
+    const promptInput = document.getElementById('prompt-input');
+    const submitBtn = document.getElementById('submit-btn');
+    const chatgptView = document.getElementById('chatgpt');
+    const claudeView = document.getElementById('claude');
+    const geminiView = document.getElementById('gemini');
+    const grokView = document.getElementById('grok');
+    const kimiView = document.getElementById('kimi');
+    const deepseekView = document.getElementById('deepseek');
+
+
+    function updatePanelWidths() {
+      // Count visible panels
+      const allPanels = document.querySelectorAll('.webview-panel');
+      const visiblePanels = Array.from(allPanels).filter(panel => !panel.classList.contains('hidden'));
+      const count = visiblePanels.length;
+
+      // Remove all width classes first
+      allPanels.forEach(panel => {
+        panel.classList.remove('width-100', 'width-50', 'width-33', 'width-25');
+      });
+
+      // Apply appropriate width class based on visible count
+      let widthClass = 'width-25'; // default for 4+
+      if (count === 1) widthClass = 'width-100';
+      else if (count === 2) widthClass = 'width-50';
+      else if (count === 3) widthClass = 'width-33';
+
+      visiblePanels.forEach(panel => {
+        panel.classList.add(widthClass);
+      });
+    }
+
+    function closeModel(modelName) {
+      const panel = document.getElementById(`${modelName}-panel`);
+      if (panel) {
+        panel.classList.add('hidden');
+        updateAddModelButton();
+        updatePanelWidths();
+      }
+    }
+
+    function restoreModel(modelName) {
+      const panel = document.getElementById(`${modelName}-panel`);
+      if (panel) {
+        panel.classList.remove('hidden');
+        updateAddModelButton();
+        updatePanelWidths();
+        hideModelDropdown();
+        
+        // Scroll to the right to show the newly added model
+        const container = document.getElementById('container');
+        setTimeout(() => {
+          container.scrollLeft = container.scrollWidth;
+        }, 50);
+      }
+    }
+
+    function isModelVisible(modelName) {
+      const panel = document.getElementById(`${modelName}-panel`);
+      return panel && !panel.classList.contains('hidden');
+    }
+
+    function toggleModelDropdown() {
+      const dropdown = document.getElementById('model-dropdown');
+      dropdown.classList.toggle('show');
+      updateDropdownItems();
+    }
+
+    function hideModelDropdown() {
+      const dropdown = document.getElementById('model-dropdown');
+      dropdown.classList.remove('show');
+    }
+
+    function updateDropdownItems() {
+      const items = document.querySelectorAll('.dropdown-item');
+      items.forEach(item => {
+        const modelName = item.textContent.toLowerCase();
+        if (isModelVisible(modelName)) {
+          item.classList.add('disabled');
+          item.style.pointerEvents = 'none';
+        } else {
+          item.classList.remove('disabled');
+          item.style.pointerEvents = 'auto';
+        }
+      });
+    }
+
+    function updateAddModelButton() {
+      const addModelBtn = document.getElementById('add-model-btn');
+      const allVisible = isModelVisible('chatgpt') && isModelVisible('claude') && isModelVisible('gemini') && isModelVisible('grok') && isModelVisible('kimi') && isModelVisible('deepseek');
+
+      if (allVisible) {
+        addModelBtn.classList.add('disabled');
+        addModelBtn.style.pointerEvents = 'none';
+      } else {
+        addModelBtn.classList.remove('disabled');
+        addModelBtn.style.pointerEvents = 'auto';
+      }
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(event) {
+      const container = document.getElementById('add-model-container');
+      if (!container.contains(event.target)) {
+        hideModelDropdown();
+      }
+    });
+
+    function newChatAll() {
+      // Create new chat in ChatGPT
+      const chatgptUrl = chatgptView.getURL();
+      if (chatgptUrl && chatgptUrl !== 'https://chatgpt.com/') {
+        chatgptView.loadURL('https://chatgpt.com/');
+        console.log('Navigated to new chat in ChatGPT');
+      } else {
+        chatgptView.reload();
+        console.log('Reloaded ChatGPT to start new chat');
+      }
+
+      // Create new chat in Claude
+      const claudeUrl = claudeView.getURL();
+      if (claudeUrl && claudeUrl !== 'https://claude.ai/new') {
+        claudeView.loadURL('https://claude.ai/new');
+        console.log('Navigated to new chat in Claude');
+      } else {
+        claudeView.reload();
+        console.log('Reloaded Claude to start new chat');
+      }
+
+      // Create new chat in Gemini
+      const geminiUrl = geminiView.getURL();
+      if (geminiUrl && geminiUrl !== 'https://gemini.google.com/') {
+        geminiView.loadURL('https://gemini.google.com/');
+        console.log('Navigated to new chat in Gemini');
+      } else {
+        geminiView.reload();
+        console.log('Reloaded Gemini to start new chat');
+      }
+
+      // Create new chat in Grok
+      const grokUrl = grokView.getURL();
+      if (grokUrl && grokUrl !== 'https://grok.com/c') {
+        grokView.loadURL('https://grok.com/c');
+        console.log('Navigated to new chat in Grok');
+      } else {
+        grokView.reload();
+        console.log('Reloaded Grok to start new chat');
+      }
+
+      // Create new chat in Kimi
+      const kimiUrl = kimiView.getURL();
+      if (kimiUrl && kimiUrl !== 'https://kimi.moonshot.cn/') {
+        kimiView.loadURL('https://kimi.moonshot.cn/');
+        console.log('Navigated to new chat in Kimi');
+      } else {
+        kimiView.reload();
+        console.log('Reloaded Kimi to start new chat');
+      }
+
+      // Create new chat in DeepSeek
+      const deepseekUrl = deepseekView.getURL();
+      if (deepseekUrl && deepseekUrl !== 'https://chat.deepseek.com/') {
+        deepseekView.loadURL('https://chat.deepseek.com/');
+        console.log('Navigated to new chat in DeepSeek');
+      } else {
+        deepseekView.reload();
+        console.log('Reloaded DeepSeek to start new chat');
+      }
+    }
+
+    function sendToBoth() {
+      const prompt = promptInput.value.trim();
+      if (!prompt) return;
+
+      // Send to ChatGPT with multiple selector fallbacks (only if visible)
+      if (isModelVisible('chatgpt')) {
+        chatgptView.executeJavaScript(`
+        (function() {
+          const selectors = [
+            '#prompt-textarea',
+            'textarea[data-id="root"]',
+            'textarea[placeholder*="Message"]',
+            'textarea',
+            '[contenteditable="true"]'
+          ];
+
+          let input = null;
+          for (const selector of selectors) {
+            input = document.querySelector(selector);
+            if (input) break;
+          }
+
+          if (!input) {
+            console.error('ChatGPT input not found');
+            return;
+          }
+
+          console.log('ChatGPT input found:', input.tagName, input.id, input.className);
+
+          // Set value based on element type
+          if (input.tagName === 'TEXTAREA') {
+            input.value = ${JSON.stringify(prompt)};
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          } else if (input.contentEditable === 'true') {
+            input.innerHTML = '<p>' + ${JSON.stringify(prompt)} + '</p>';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          // Try multiple button selectors
+          setTimeout(() => {
+            const btnSelectors = [
+              'button[data-testid="send-button"]',
+              'button[data-testid="fruitjuice-send-button"]',
+              'button[aria-label*="Send"]',
+              'button:has(svg[data-icon="arrow-up"])',
+              'button:has(svg):not([disabled])'
+            ];
+
+            let btn = null;
+            for (const selector of btnSelectors) {
+              try {
+                btn = document.querySelector(selector);
+                if (btn && !btn.disabled) break;
+              } catch(e) {}
+            }
+
+            if (btn) {
+              console.log('ChatGPT button found and clicking');
+              btn.click();
+            } else {
+              console.error('ChatGPT send button not found');
+            }
+          }, 200);
+        })();
+      `);
+      }
+
+      // Send to Claude (only if visible)
+      if (isModelVisible('claude')) {
+        claudeView.executeJavaScript(`
+        (function() {
+          const input = document.querySelector('div.ProseMirror') ||
+                       document.querySelector('[contenteditable="true"]');
+
+          if (!input) {
+            console.error('Claude input not found');
+            return;
+          }
+
+          console.log('Claude input found');
+          input.innerHTML = '<p>' + ${JSON.stringify(prompt)} + '</p>';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+
+          setTimeout(() => {
+            const btn = document.querySelector('button[aria-label*="Send"]') ||
+                        document.querySelector('button[aria-label="Send Message"]') ||
+                        document.querySelector('button:has(svg)');
+
+            if (btn) {
+              console.log('Claude button found and clicking');
+              btn.click();
+            } else {
+              console.error('Claude send button not found');
+            }
+          }, 200);
+        })();
+      `);
+      }
+
+      // Send to Gemini (only if visible)
+      if (isModelVisible('gemini')) {
+        geminiView.executeJavaScript(`
+        (function() {
+          // Use the correct Gemini selectors from debug
+          const input = document.querySelector('.ql-editor[aria-label="Enter a prompt here"]') ||
+                       document.querySelector('.ql-editor');
+
+          if (!input) {
+            console.error('Gemini input not found');
+            return;
+          }
+
+          console.log('Gemini input found:', input.tagName, input.className);
+
+          // Focus the input first
+          input.focus();
+
+          // For Quill editor, we need to set textContent and trigger events
+          input.textContent = ${JSON.stringify(prompt)};
+
+          // Trigger multiple events that Quill might be listening for
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'a' }));
+          input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'a' }));
+
+          // Also try setting innerHTML as backup
+          if (input.textContent !== ${JSON.stringify(prompt)}) {
+            input.innerHTML = ${JSON.stringify(prompt)};
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          setTimeout(() => {
+            // Find the send button with the correct selector
+            const btn = document.querySelector('button[aria-label="Send message"]');
+
+            if (btn && !btn.disabled) {
+              console.log('Gemini button found and clicking');
+              btn.click();
+            } else {
+              console.error('Gemini send button not found or disabled:', btn ? 'disabled' : 'not found');
+            }
+          }, 300);
+        })();
+      `);
+      }
+
+      // Send to Grok (only if visible)
+      // Grok requires special handling: simulate actual character-by-character typing
+      if (isModelVisible('grok')) {
+        grokView.executeJavaScript(`
+        (function() {
+          // Try multiple selectors for Grok input
+          const input = document.querySelector('textarea[aria-label="Ask Grok anything"]') ||
+                       document.querySelector('textarea[placeholder*="Ask"]') ||
+                       document.querySelector('[contenteditable="true"][role="textbox"]') ||
+                       document.querySelector('[contenteditable="true"]') ||
+                       document.querySelector('textarea');
+
+          if (!input) {
+            console.error('Grok input not found');
+            return;
+          }
+
+          console.log('Grok input found:', input.tagName);
+
+          // IMPORTANT: Hide the "Ask Grok" overlay span that sits on top of the textarea
+          // It's a sibling element with "absolute" positioning
+          const parent = input.parentElement;
+          if (parent) {
+            const overlaySpan = parent.querySelector('span.absolute');
+            if (overlaySpan) {
+              overlaySpan.style.display = 'none';
+              console.log('Grok: Hidden overlay span');
+            }
+          }
+
+          // Click and focus
+          input.click();
+          input.focus();
+
+          const text = ${JSON.stringify(prompt)};
+
+          // Handle textarea vs contenteditable
+          if (input.tagName === 'TEXTAREA') {
+            // For React apps, we need to use the native setter to trigger onChange
+            // This is the technique used by testing libraries like react-testing-library
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLTextAreaElement.prototype,
+              'value'
+            ).set;
+            
+            // Clear first
+            nativeInputValueSetter.call(input, '');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            setTimeout(() => {
+              // Set the value using the native setter (this bypasses React's getter/setter)
+              nativeInputValueSetter.call(input, text);
+              
+              // Dispatch input event - React listens to this
+              const inputEvent = new Event('input', { bubbles: true });
+              input.dispatchEvent(inputEvent);
+              
+              // Also dispatch change for good measure
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+              
+              console.log('Grok: Set value using native setter. Value:', input.value?.substring(0, 50));
+              
+              // Wait for React to update UI then click send
+              setTimeout(() => {
+                const sendButton = document.querySelector('button[aria-label="Submit"]') ||
+                                 document.querySelector('button[type="submit"]') ||
+                                 document.querySelector('button[aria-label*="Send"]');
+                
+                if (sendButton && !sendButton.disabled) {
+                  console.log('Grok: Clicking send button');
+                  sendButton.click();
+                } else {
+                  console.log('Grok: Send button not found or disabled:', sendButton?.disabled);
+                  // Debug: check value and textContent
+                  console.log('Grok debug - input.value:', input.value);
+                  console.log('Grok debug - input.textContent:', input.textContent);
+                }
+              }, 500);
+            }, 100);
+          } else {
+            // contenteditable element
+            input.textContent = '';
+            input.innerHTML = '';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            let index = 0;
+            const typeInterval = setInterval(() => {
+              if (index < text.length) {
+                const char = text[index];
+                input.textContent += char;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+                index++;
+              } else {
+                clearInterval(typeInterval);
+                console.log('Grok: Finished typing (contenteditable)');
+                
+                setTimeout(() => {
+                  const sendButton = document.querySelector('button[aria-label="Submit"]') ||
+                                   document.querySelector('button[type="submit"]');
+                  if (sendButton && !sendButton.disabled) {
+                    sendButton.click();
+                  }
+                }, 300);
+              }
+            }, 5);
+          }
+        })();
+      `);
+      }
+
+      // Send to Kimi (only if visible)
+      // Kimi uses contenteditable and is very defensive about DOM manipulation
+      if (isModelVisible('kimi')) {
+        console.log('Main window: Sending to Kimi');
+        kimiView.executeJavaScript(`
+        (function() {
+          const input = document.querySelector('.chat-input-editor') ||
+                       document.querySelector('[contenteditable="true"]');
+
+          if (!input) {
+            return 'ERROR: Input not found';
+          }
+
+          const text = ${JSON.stringify(prompt)};
+
+          // Focus the input
+          input.click();
+          input.focus();
+
+          // Use document.execCommand for contenteditable - this is the proper way
+          // and works better with React/Vue controlled components
+          document.execCommand('selectAll', false, null);
+          document.execCommand('delete', false, null);
+          
+          // Small delay then insert text
+          setTimeout(() => {
+            document.execCommand('insertText', false, text);
+            
+            // Dispatch events to notify the framework
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // Wait for UI to update then look for send button
+            // Kimi's send button appears after text is entered, may need extra time
+            setTimeout(() => {
+              // Try multiple selectors - Kimi uses a div, not a button
+              let sendButton = document.querySelector('.send-button:not(.disabled)');
+              
+              // If not found, try without disabled check
+              if (!sendButton) {
+                sendButton = document.querySelector('.send-button');
+                // Check if it's actually disabled
+                if (sendButton && sendButton.classList.contains('disabled')) {
+                  console.log('Kimi: Send button exists but is disabled, waiting longer...');
+                  // Wait a bit more for it to become enabled
+                  setTimeout(() => {
+                    sendButton = document.querySelector('.send-button:not(.disabled)');
+                    if (sendButton) {
+                      console.log('Kimi: Send button now enabled, clicking');
+                      sendButton.click();
+                    } else {
+                      console.error('Kimi: Send button still disabled after wait');
+                    }
+                  }, 300);
+                  return;
+                }
+              }
+              
+              // Fallback to container
+              if (!sendButton) {
+                sendButton = document.querySelector('.send-button-container:not(.disabled)');
+              }
+              
+              // Last resort - try any send-button
+              if (!sendButton) {
+                sendButton = document.querySelector('.send-button-container');
+              }
+
+              if (sendButton) {
+                // Check if disabled
+                if (sendButton.classList.contains('disabled')) {
+                  console.log('Kimi: Send button found but disabled, waiting...');
+                  setTimeout(() => {
+                    const enabledBtn = document.querySelector('.send-button:not(.disabled)');
+                    if (enabledBtn) {
+                      console.log('Kimi: Clicking enabled send button');
+                      enabledBtn.click();
+                    }
+                  }, 500);
+                } else {
+                  console.log('Kimi: Found send element, clicking');
+                  sendButton.click();
+                  console.log('Kimi: Send clicked');
+                }
+              } else {
+                console.error('Kimi: Send button not found');
+                // Debug info
+                const sendBtn = document.querySelector('.send-button');
+                const sendContainer = document.querySelector('.send-button-container');
+                console.log('Kimi: .send-button exists:', !!sendBtn);
+                console.log('Kimi: .send-button-container exists:', !!sendContainer);
+                if (sendBtn) {
+                  console.log('Kimi: .send-button classes:', sendBtn.className);
+                  console.log('Kimi: .send-button disabled:', sendBtn.classList.contains('disabled'));
+                }
+              }
+            }, 800); // Increased delay to 800ms to give more time for button to appear
+          }, 100);
+
+          return 'Kimi: execCommand insert started';
+        })();
+      `).then((result) => {
+        console.log('Main window: Kimi result:', result);
+      }).catch(err => {
+        console.error('Main window: Kimi error:', err);
+      });
+      }
+
+      // Send to DeepSeek (only if visible)
+      if (isModelVisible('deepseek')) {
+        deepseekView.executeJavaScript(`
+        (function() {
+          console.log('DeepSeek: Starting super send');
+
+          // Try multiple selectors for DeepSeek input
+          const input = document.querySelector('textarea[placeholder*="Ask"]') ||
+                       document.querySelector('textarea[placeholder*="问"]') ||
+                       document.querySelector('textarea') ||
+                       document.querySelector('[contenteditable="true"]');
+
+          if (!input) {
+            console.error('DeepSeek input not found');
+            console.log('DeepSeek: Available textareas:', document.querySelectorAll('textarea').length);
+            console.log('DeepSeek: Available contenteditable:', document.querySelectorAll('[contenteditable="true"]').length);
+            return;
+          }
+
+          console.log('DeepSeek: Input found:', input.tagName, input.className);
+
+          // Click and focus
+          input.click();
+          input.focus();
+
+          const text = ${JSON.stringify(prompt)};
+
+          // Handle textarea (React-based) vs contenteditable
+          if (input.tagName === 'TEXTAREA') {
+            // Use native setter for React compatibility (same as Grok)
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLTextAreaElement.prototype,
+              'value'
+            ).set;
+
+            // Clear first
+            nativeInputValueSetter.call(input, '');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+
+            setTimeout(() => {
+              // Set value using native setter
+              nativeInputValueSetter.call(input, text);
+
+              // Dispatch input event - React listens to this
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+
+              console.log('DeepSeek: Set value using native setter. Value:', input.value?.substring(0, 50));
+
+              // Wait for React to update UI then click send
+              setTimeout(() => {
+                // Try multiple button selectors
+                const sendButton = document.querySelector('button[type="submit"]') ||
+                                 document.querySelector('button[aria-label*="Submit"]') ||
+                                 document.querySelector('button[aria-label*="Send"]') ||
+                                 document.querySelector('button[aria-label*="发送"]') ||
+                                 document.querySelector('button:has(svg):not([disabled])');
+
+                if (sendButton && !sendButton.disabled) {
+                  console.log('DeepSeek: Found and clicking send button');
+                  sendButton.click();
+                  console.log('DeepSeek: Send button clicked');
+                } else {
+                  console.error('DeepSeek: Send button not found or disabled');
+                  console.log('DeepSeek: Total buttons:', document.querySelectorAll('button').length);
+                  console.log('DeepSeek: Enabled buttons:', document.querySelectorAll('button:not([disabled])').length);
+                }
+              }, 500);
+            }, 100);
+          } else {
+            // contenteditable element
+            input.innerHTML = '';
+            input.textContent = '';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+
+            setTimeout(() => {
+              input.textContent = text;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+
+              console.log('DeepSeek: Set text (contenteditable):', input.textContent.substring(0, 50));
+
+              setTimeout(() => {
+                const sendButton = document.querySelector('button[type="submit"]') ||
+                                 document.querySelector('button[aria-label*="Send"]') ||
+                                 document.querySelector('button:has(svg):not([disabled])');
+
+                if (sendButton && !sendButton.disabled) {
+                  console.log('DeepSeek: Clicking send button (contenteditable)');
+                  sendButton.click();
+                } else {
+                  console.error('DeepSeek: Send button not found or disabled (contenteditable)');
+                }
+              }, 500);
+            }, 100);
+          }
+        })();
+      `);
+      }
+
+      promptInput.value = '';
+    }
+
+    submitBtn.addEventListener('click', sendToBoth);
+
+    promptInput.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        sendToBoth();
+      }
+    });
+
+    // Enable popups and new windows for all webviews
+    // This is needed for:
+    // - OAuth login popups (e.g., Kimi's Google auth)
+    // - External links (e.g., ChatGPT references, sources)
+    // - Any other popup windows the AI services might use
+    const webviews = [chatgptView, claudeView, geminiView, grokView, kimiView, deepseekView];
+
+    webviews.forEach((webview, index) => {
+      const names = ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'Kimi', 'DeepSeek'];
+      const name = names[index];
+
+      webview.addEventListener('new-window', (e) => {
+        const url = e.url;
+        console.log(`${name}: Opening popup window for ${url}`);
+
+        // Open in a visible Electron popup window
+        window.electronAPI.openPopupWindow(url, `${name} - Popup`).then(() => {
+          console.log(`${name}: Popup window opened successfully`);
+        }).catch(err => {
+          console.error(`${name}: Failed to open popup window:`, err);
+          // Fallback to system browser via IPC
+          window.electronAPI.openExternal(url).catch(fallbackErr => {
+            console.error(`${name}: Fallback also failed:`, fallbackErr);
+          });
+        });
+      });
+
+      console.log(`${name}: Popup/new-window handler enabled`);
+    });
+
+    // Initialize panel widths on page load
+    updatePanelWidths();
+
+    // Handle file dialogs for all webviews
+    // This is necessary for file upload buttons within ChatGPT, Claude, etc.
+    webviews.forEach((webview, index) => {
+      const names = ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'Kimi', 'DeepSeek'];
+      const name = names[index];
+
+      // Handle file chooser requests
+      webview.addEventListener('dom-ready', () => {
+        console.log(`${name}: Webview ready, file dialog support enabled`);
+      });
+    });
+  </script>
+</body>
+</html>
