@@ -1,5 +1,5 @@
 # Boardroom
-[![Boardroom Demo](https://img.youtube.com/vi/zBqwQQYfurY/maxresdefault.jpg)](https://youtu.be/zBqwQQYfurY)
+https://github.com/user-attachments/assets/1ce84240-710e-418d-ba85-b77e96deba77
 
 A split-screen desktop app for using ChatGPT, Claude, Gemini, Grok, Kimi, and DeepSeek side by side. Type once, send to all.
 
