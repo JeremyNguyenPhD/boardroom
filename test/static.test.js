@@ -6,10 +6,19 @@ const test = require('node:test');
 const root = path.join(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 const models = ['chatgpt', 'claude', 'gemini', 'grok', 'kimi', 'deepseek'];
+const releaseTestCommand = 'node --test test/static.test.js test/link-actions.node.test.js test/popup-controls.node.test.js test/popup-page.node.test.js';
+
+function listJavaScriptFiles(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) return listJavaScriptFiles(absolute);
+    return entry.isFile() && entry.name.endsWith('.js') ? [absolute] : [];
+  });
+}
 
 test('public tests are static-only and never launch Electron or provider webviews', () => {
-  const testFiles = fs.readdirSync(path.join(root, 'test')).filter(file => file.endsWith('.js'));
-  const contents = testFiles.map(file => read(path.join('test', file))).join('\n');
+  const testFiles = listJavaScriptFiles(path.join(root, 'test'));
+  const contents = testFiles.map(file => fs.readFileSync(file, 'utf8')).join('\n');
   const playwrightImport = '@' + 'playwright/test';
   const providerE2EFlag = 'BOARDROOM' + '_E2E';
   const electronLaunch = ['electron', ' .'].join('');
@@ -148,8 +157,9 @@ test('v1.1.0 package metadata is coherent and keeps the public build boundary', 
   assert.equal(lock.version, '1.1.0');
   assert.equal(lock.packages[''].version, '1.1.0');
   assert.equal(pkg.license, 'MIT');
-  assert.equal(pkg.scripts.test, 'node --test "test/**/*.test.js" "test/**/*.node.test.js"');
+  assert.equal(pkg.scripts.test, releaseTestCommand);
   assert.deepEqual(pkg.build.files, ['src/**/*', 'package.json']);
+  assert.equal(pkg.build.nsis.artifactName, '${productName}-Setup-${version}.${ext}');
 });
 
 test('CI tests before both platform builds and publishes tags only', () => {
@@ -161,6 +171,8 @@ test('CI tests before both platform builds and publishes tags only', () => {
   assert.equal((workflow.match(/needs: test/g) || []).length, 2);
   assert.equal(workflow.includes("if: startsWith(github.ref, 'refs/tags/v')"), true);
   assert.equal(workflow.includes('needs: [build-mac, build-windows]'), true);
+  assert.equal(workflow.includes('Verify tag matches package version'), true);
+  assert.equal(workflow.includes('GITHUB_REF_NAME'), true);
 });
 
 test('README documents the v1.1.0 features and unsigned-app guidance', () => {

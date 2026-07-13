@@ -15,6 +15,9 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
       - run: npm test
 
   build-mac:

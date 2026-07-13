@@ -5,7 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test \"test/**/*.test.js\" \"test/**/*.node.test.js\"",
+    "test": "node --test test/static.test.js test/link-actions.node.test.js test/popup-controls.node.test.js test/popup-page.node.test.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win"
@@ -29,7 +29,8 @@
     "win": {
       "target": ["nsis"]
     },
-    "nsis": {
+  "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
       "oneClick": true,
       "deleteAppDataOnUninstall": false
     }
