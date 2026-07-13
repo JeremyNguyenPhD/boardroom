@@ -139,3 +139,44 @@ test('all synchronized runtime helpers exist and resolve without Electron', () =
   assert.doesNotThrow(() => require('../src/lib/link-actions'));
   assert.doesNotThrow(() => require('../src/lib/popup-controls'));
 });
+
+test('v1.1.0 package metadata is coherent and keeps the public build boundary', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const lock = JSON.parse(read('package-lock.json'));
+
+  assert.equal(pkg.version, '1.1.0');
+  assert.equal(lock.version, '1.1.0');
+  assert.equal(lock.packages[''].version, '1.1.0');
+  assert.equal(pkg.license, 'MIT');
+  assert.equal(pkg.scripts.test, 'node --test "test/**/*.test.js" "test/**/*.node.test.js"');
+  assert.deepEqual(pkg.build.files, ['src/**/*', 'package.json']);
+});
+
+test('CI tests before both platform builds and publishes tags only', () => {
+  const workflow = read('.github/workflows/build.yml');
+
+  assert.equal(workflow.includes('workflow_dispatch:'), true);
+  assert.equal(workflow.includes('  test:'), true);
+  assert.equal(workflow.includes('      - run: npm test'), true);
+  assert.equal((workflow.match(/needs: test/g) || []).length, 2);
+  assert.equal(workflow.includes("if: startsWith(github.ref, 'refs/tags/v')"), true);
+  assert.equal(workflow.includes('needs: [build-mac, build-windows]'), true);
+});
+
+test('README documents the v1.1.0 features and unsigned-app guidance', () => {
+  const readme = read('README.md');
+
+  for (const phrase of [
+    'file attachments',
+    'Right-click',
+    'editable address bar',
+    'Boardroom-1.1.0-universal.dmg',
+    'Boardroom-Setup-1.1.0.exe',
+    'macOS may show a warning',
+    'Windows SmartScreen may show a warning',
+    'npm ci',
+    'MIT'
+  ]) {
+    assert.equal(readme.includes(phrase), true, `README is missing: ${phrase}`);
+  }
+});
