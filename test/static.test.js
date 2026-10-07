@@ -86,15 +86,19 @@ test('file and file-only sends remain guarded for every visible provider', () =>
   assert.equal(html.includes('await Promise.all(modelPromises)'), true);
 });
 
-test('controlled link actions and popup isolation are wired in the main process', () => {
+test('link context actions and popup shell are wired in the main process', () => {
   const main = read('src/main.js');
 
   assert.equal(main.includes("require('./lib/link-actions')"), true);
+  assert.equal(main.includes("require('./lib/popup-routing')"), true);
   assert.equal(main.includes('buildWebviewContextMenuTemplate('), true);
   assert.equal(main.includes("ipcMain.handle('copy-text'"), true);
   assert.equal(main.includes("ipcMain.handle('open-popup-window'"), true);
   assert.equal(main.includes("popupWindow.loadFile(path.join(__dirname, 'popup.html')"), true);
-  assert.equal(main.includes("return { action: 'deny' };"), true);
+  assert.equal(main.includes('createWindowOpenHandler({'), true);
+  assert.equal(main.includes('configurePopupRouting(contents, getPartitionForWebContents(contents))'), true);
+  assert.equal(main.includes("contents.on('did-create-window'"), true);
+  assert.equal(main.includes('configurePopupRouting(childWindow.webContents, partition)'), true);
   assert.equal(main.includes('webviewTag: true'), true);
   assert.equal(main.includes('nodeIntegration: false'), true);
   assert.equal(main.includes('contextIsolation: true'), true);
@@ -124,19 +128,21 @@ test('popup shell exposes editable URL controls inside an isolated webview', () 
   assert.equal(popupPage.includes('window.electronAPI.openExternal(result.url)'), true);
 });
 
-test('every provider routes clicked links through the controlled popup path', () => {
+test('renderer leaves popup routing to the main process', () => {
   const html = read('src/index.html');
 
-  assert.equal(html.includes('const webviews = [chatgptView, claudeView, geminiView, grokView, kimiView, deepseekView];'), true);
-  assert.equal(html.includes("webview.addEventListener('new-window'"), true);
-  assert.equal(html.includes("window.electronAPI.openPopupWindow(url, `${name} - Popup`, webview.getAttribute('partition'))"), true);
-  assert.equal(html.includes('window.electronAPI.openExternal(url).catch'), true);
-  assert.equal((html.match(/allowpopups/g) || []).length, 6);
+  assert.equal(html.includes('const providerWebviews = [chatgptView, claudeView, geminiView, grokView, kimiView, deepseekView];'), true);
+  assert.equal(html.includes('providerWebviews.forEach((webview, index) => {'), true);
+  assert.equal(/\.addEventListener\(\s*['"]new-window['"]/.test(html), false);
+
+  const allowPopupsCount = (html.match(/allowpopups/g) || []).length;
+  assert.equal(allowPopupsCount, 6);
 });
 
 test('all synchronized runtime helpers exist and resolve without Electron', () => {
   for (const relativePath of [
     'src/lib/link-actions.js',
+    'src/lib/popup-routing.js',
     'src/lib/popup-controls.js',
     'src/lib/popup-page.js',
     'src/lib/url-utils.js',
@@ -146,16 +152,17 @@ test('all synchronized runtime helpers exist and resolve without Electron', () =
   }
 
   assert.doesNotThrow(() => require('../src/lib/link-actions'));
+  assert.doesNotThrow(() => require('../src/lib/popup-routing'));
   assert.doesNotThrow(() => require('../src/lib/popup-controls'));
 });
 
-test('v1.1.0 package metadata is coherent and keeps the public build boundary', () => {
+test('v1.1.1 package metadata is coherent and keeps the public build boundary', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
 
-  assert.equal(pkg.version, '1.1.0');
-  assert.equal(lock.version, '1.1.0');
-  assert.equal(lock.packages[''].version, '1.1.0');
+  assert.equal(pkg.version, '1.1.1');
+  assert.equal(lock.version, '1.1.1');
+  assert.equal(lock.packages[''].version, '1.1.1');
   assert.equal(pkg.license, 'MIT');
   assert.equal(pkg.scripts.test, releaseTestCommand);
   assert.deepEqual(pkg.build.files, ['src/**/*', 'package.json']);
@@ -175,15 +182,15 @@ test('CI tests before both platform builds and publishes tags only', () => {
   assert.equal(workflow.includes('GITHUB_REF_NAME'), true);
 });
 
-test('README documents the v1.1.0 features and unsigned-app guidance', () => {
+test('README documents the v1.1.1 features and unsigned-app guidance', () => {
   const readme = read('README.md');
 
   for (const phrase of [
     'file attachments',
     'Right-click',
     'editable address bar',
-    'Boardroom-1.1.0-universal.dmg',
-    'Boardroom-Setup-1.1.0.exe',
+    'Boardroom-1.1.1-universal.dmg',
+    'Boardroom-Setup-1.1.1.exe',
     'macOS may show a warning',
     'Windows SmartScreen may show a warning',
     'npm ci',
@@ -191,4 +198,265 @@ test('README documents the v1.1.0 features and unsigned-app guidance', () => {
   ]) {
     assert.equal(readme.includes(phrase), true, `README is missing: ${phrase}`);
   }
+});
+
+const { createRequire } = require('node:module');
+const vm = require('node:vm');
+
+const mainPath = path.join(__dirname, '../src/main.js');
+const mainRequire = createRequire(mainPath);
+
+function runStartup(userAgent) {
+  const sessions = new Map();
+  const changes = [];
+  let ready;
+  let identityAtWindowCreation;
+  const electron = {
+    app: {
+      name: 'boardroom',
+      on() {},
+      whenReady: () => ({ then: (callback) => { ready = callback; } })
+    },
+    session: {
+      fromPartition(partition) {
+        if (!sessions.has(partition)) {
+          let identity = userAgent;
+          sessions.set(partition, {
+            on() {},
+            getUserAgent: () => identity,
+            setUserAgent: (value) => {
+              identity = value;
+              changes.push(partition);
+            }
+          });
+        }
+        return sessions.get(partition);
+      }
+    },
+    BrowserWindow: class {
+      constructor() {
+        identityAtWindowCreation = electron.session.fromPartition('persist:gemini').getUserAgent();
+        this.webContents = { session: { on() {} } };
+      }
+      loadFile() {}
+    },
+    ipcMain: { handle() {} },
+    Menu: { buildFromTemplate() {}, setApplicationMenu() {} }
+  };
+  vm.runInNewContext(fs.readFileSync(mainPath, 'utf8'), {
+    require: (name) => name === 'electron' ? electron : mainRequire(name),
+    __dirname: path.dirname(mainPath),
+    process: { platform: 'darwin' },
+    console
+  });
+  assert.deepEqual(changes, [], 'session configuration must wait for Electron readiness');
+  ready();
+  return { changes, identityAtWindowCreation };
+}
+
+test('Gemini starts with a Chrome-compatible identity before any window loads', () => {
+  const browserIdentity = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7339.133 Safari/537.36';
+  const electronIdentity = browserIdentity.replace('Chrome/', 'boardroom/1.0.0 Chrome/')
+    .replace('Safari/', 'Electron/38.2.2 Safari/');
+  const result = runStartup(electronIdentity);
+  assert.equal(result.identityAtWindowCreation, browserIdentity);
+  assert.deepEqual(result.changes, ['persist:gemini'], 'other provider identities must remain unchanged');
+});
+
+test('Gemini identity preserves the installed browser version and platform across upgrades', () => {
+  const browserIdentity = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150.0.1234.5 Safari/537.36';
+  const result = runStartup(browserIdentity.replace('Chrome/', 'boardroom/2.1.0 Chrome/')
+    .replace('Safari/', 'Electron/48.0.0 Safari/'));
+  assert.equal(result.identityAtWindowCreation, browserIdentity);
+  assert.equal(runStartup(browserIdentity).identityAtWindowCreation, browserIdentity);
+});
+
+const {
+  createWindowOpenHandler,
+  shouldUseNativeAuthPopup
+} = require('../src/lib/popup-routing');
+
+test('uses a native child window for Claude Google authentication from Claude', () => {
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:claude',
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=example',
+    'https://claude.ai/login'
+  ), true);
+});
+
+test('uses a native child window for Google descendants in the Claude auth chain', () => {
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:claude',
+    'https://accounts.google.com/gsi/transform',
+    'https://accounts.google.com/o/oauth2/v2/auth'
+  ), true);
+});
+
+test('keeps ordinary Claude links in the controlled popup shell', () => {
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:claude',
+    'https://support.claude.com/en/articles/example',
+    'https://claude.ai/new'
+  ), false);
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:claude',
+    'https://example.com/source',
+    'https://claude.ai/new'
+  ), false);
+});
+
+test('does not grant the Claude authentication route to other providers', () => {
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:chatgpt',
+    'https://accounts.google.com/o/oauth2/v2/auth',
+    'https://chatgpt.com/'
+  ), false);
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:gemini',
+    'https://accounts.google.com/gsi/transform',
+    'https://gemini.google.com/'
+  ), false);
+});
+
+test('rejects lookalike and non-HTTPS authentication URLs', () => {
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:claude',
+    'https://accounts.google.com.evil.example/o/oauth2/v2/auth',
+    'https://claude.ai/'
+  ), false);
+  assert.equal(shouldUseNativeAuthPopup(
+    'persist:claude',
+    'http://accounts.google.com/o/oauth2/v2/auth',
+    'https://claude.ai/'
+  ), false);
+  assert.equal(shouldUseNativeAuthPopup('persist:claude', 'not a url', 'https://claude.ai/'), false);
+});
+
+test('rejects Google authentication popups from non-Claude or untrusted openers', () => {
+  const popupUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+
+  assert.equal(shouldUseNativeAuthPopup('persist:claude', popupUrl, 'https://evil.example/'), false);
+  assert.equal(shouldUseNativeAuthPopup('persist:claude', popupUrl, 'https://claude.ai.evil.example/'), false);
+  assert.equal(shouldUseNativeAuthPopup('persist:claude', popupUrl, 'http://claude.ai/'), false);
+  assert.equal(shouldUseNativeAuthPopup('persist:claude', popupUrl, 'not a url'), false);
+});
+
+test('window-open handler returns the complete native auth decision', () => {
+  const providerSession = { id: 'claude-session' };
+  const opened = [];
+  const handler = createWindowOpenHandler({
+    partition: 'persist:claude',
+    getOpenerUrl: () => 'https://claude.ai/login',
+    session: providerSession,
+    openControlledPopup: (...args) => opened.push(args)
+  });
+
+  assert.deepEqual(handler({
+    url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=example'
+  }), {
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      width: 800,
+      height: 700,
+      title: 'Claude sign-in',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        session: providerSession
+      }
+    }
+  });
+  assert.deepEqual(opened, []);
+});
+
+test('window-open handler denies ordinary Claude links and opens the controlled shell', async () => {
+  const opened = [];
+  const handler = createWindowOpenHandler({
+    partition: 'persist:claude',
+    getOpenerUrl: () => 'https://claude.ai/new',
+    session: { id: 'claude-session' },
+    openControlledPopup: (...args) => {
+      opened.push(args);
+      return { success: true };
+    }
+  });
+  const url = 'https://support.claude.com/en/articles/example';
+
+  assert.deepEqual(handler({ url }), { action: 'deny' });
+  await Promise.resolve();
+  assert.deepEqual(opened, [[url, 'persist:claude']]);
+});
+
+test('window-open handler keeps other providers in the controlled shell', async () => {
+  const opened = [];
+  const handler = createWindowOpenHandler({
+    partition: 'persist:chatgpt',
+    getOpenerUrl: () => 'https://chatgpt.com/',
+    session: { id: 'chatgpt-session' },
+    openControlledPopup: (...args) => {
+      opened.push(args);
+      return Promise.resolve({ success: true });
+    }
+  });
+  const url = 'https://accounts.google.com/o/oauth2/v2/auth';
+
+  assert.deepEqual(handler({ url }), { action: 'deny' });
+  await Promise.resolve();
+  assert.deepEqual(opened, [[url, 'persist:chatgpt']]);
+});
+
+test('window-open handler only permits Google descendants from the allowed auth chain', () => {
+  const providerSession = { id: 'claude-session' };
+  const allowedHandler = createWindowOpenHandler({
+    partition: 'persist:claude',
+    getOpenerUrl: () => 'https://accounts.google.com/o/oauth2/v2/auth',
+    session: providerSession,
+    openControlledPopup: () => ({ success: true })
+  });
+  const controlled = [];
+  const maliciousOpenerHandler = createWindowOpenHandler({
+    partition: 'persist:claude',
+    getOpenerUrl: () => 'https://evil.example/',
+    session: providerSession,
+    openControlledPopup: (...args) => {
+      controlled.push(args);
+      return { success: true };
+    }
+  });
+  const popupUrl = 'https://accounts.google.com/gsi/transform';
+
+  const result = allowedHandler({ url: popupUrl });
+  assert.equal(result.action, 'allow');
+  assert.equal(result.overrideBrowserWindowOptions.webPreferences.session, providerSession);
+  assert.deepEqual(maliciousOpenerHandler({ url: popupUrl }), { action: 'deny' });
+  assert.deepEqual(controlled, [[popupUrl, 'persist:claude']]);
+});
+
+test('window-open handler reports invalid and rejected controlled popup results safely', async () => {
+  const messages = [];
+  const baseOptions = {
+    partition: 'persist:claude',
+    getOpenerUrl: () => 'https://claude.ai/new',
+    session: { id: 'claude-session' },
+    onControlledPopupError: (message) => messages.push(message)
+  };
+  const invalidResultHandler = createWindowOpenHandler({
+    ...baseOptions,
+    openControlledPopup: () => ({ success: false, error: 'Unsafe URL\nwas rejected' })
+  });
+  const rejectedHandler = createWindowOpenHandler({
+    ...baseOptions,
+    openControlledPopup: () => Promise.reject(new Error('Popup failed\nwithout a window'))
+  });
+
+  assert.deepEqual(invalidResultHandler({ url: 'javascript:alert(1)' }), { action: 'deny' });
+  assert.deepEqual(rejectedHandler({ url: 'https://example.com/' }), { action: 'deny' });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(messages, [
+    'Unsafe URL was rejected',
+    'Popup failed without a window'
+  ]);
 });

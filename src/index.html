@@ -446,6 +446,7 @@
     const grokView = document.getElementById('grok');
     const kimiView = document.getElementById('kimi');
     const deepseekView = document.getElementById('deepseek');
+    const providerWebviews = [chatgptView, claudeView, geminiView, grokView, kimiView, deepseekView];
 
     // File attachment state
     let attachedFile = null;
@@ -1832,39 +1833,8 @@
       }
     });
 
-    // Enable popups and new windows for all webviews
-    // This is needed for:
-    // - OAuth login popups (e.g., Kimi's Google auth)
-    // - External links (e.g., ChatGPT references, sources)
-    // - Any other popup windows the AI services might use
-    const webviews = [chatgptView, claudeView, geminiView, grokView, kimiView, deepseekView];
-
-    webviews.forEach((webview, index) => {
-      const names = ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'Kimi', 'DeepSeek'];
-      const name = names[index];
-
-      webview.addEventListener('new-window', (e) => {
-        e.preventDefault();
-        const url = e.url;
-        console.log(`${name}: Opening popup window for ${url}`);
-
-        // Open in a visible Electron popup window
-        window.electronAPI.openPopupWindow(url, `${name} - Popup`, webview.getAttribute('partition')).then((result) => {
-          if (!result || !result.success) {
-            throw new Error(result && result.error ? result.error : 'Popup window failed');
-          }
-          console.log(`${name}: Popup window opened successfully`);
-        }).catch(err => {
-          console.error(`${name}: Failed to open popup window:`, err);
-          // Fallback to system browser via IPC
-          window.electronAPI.openExternal(url).catch(fallbackErr => {
-            console.error(`${name}: Fallback also failed:`, fallbackErr);
-          });
-        });
-      });
-
-      console.log(`${name}: Popup/new-window handler enabled`);
-    });
+    // Popup routing is owned by src/main.js. Keeping it out of the renderer lets
+    // native authentication children preserve their browser-created opener.
 
     // Demo mode toggle (Shift+Cmd+D)
     let demoMode = false;
@@ -1890,7 +1860,7 @@
 
     // Handle file dialogs for all webviews
     // This is necessary for file upload buttons within ChatGPT, Claude, etc.
-    webviews.forEach((webview, index) => {
+    providerWebviews.forEach((webview, index) => {
       const names = ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'Kimi', 'DeepSeek'];
       const name = names[index];
 

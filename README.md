@@ -11,11 +11,16 @@ A split-screen desktop app for using ChatGPT, Claude, Gemini, Grok, Kimi, and De
 - Right-click provider links to copy their URL or open them in your system browser.
 - Open clicked links in a controlled Boardroom popup with an editable address bar and the provider's existing session.
 
+## Changes in 1.1.1
+
+- Fix Gemini responses getting stuck after sending a prompt.
+- Restore Google sign-in for Claude inside Boardroom.
+
 ## Download
 
 Go to [Releases](../../releases/latest) and download:
-- **Mac**: `Boardroom-1.1.0-universal.dmg`
-- **Windows**: `Boardroom-Setup-1.1.0.exe`
+- **Mac**: `Boardroom-1.1.1-universal.dmg`
+- **Windows**: `Boardroom-Setup-1.1.1.exe`
 
 ### System Requirements
 
