@@ -6,6 +6,9 @@ const {
   isBrowserSafeUrl,
   openBrowserUrlExternal
 } = require('./lib/link-actions');
+const {
+  createWindowOpenHandler
+} = require('./lib/popup-routing');
 
 const PROVIDER_PARTITIONS = new Set([
   'persist:chatgpt',
@@ -16,6 +19,7 @@ const PROVIDER_PARTITIONS = new Set([
   'persist:deepseek'
 ]);
 const FALLBACK_POPUP_PARTITION = 'persist:popup';
+const popupRoutingConfigured = new WeakSet();
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -220,6 +224,31 @@ async function createPopupWindow(url, title, partition) {
   return { success: true };
 }
 
+function configurePopupRouting(contents, partition) {
+  if (popupRoutingConfigured.has(contents)) {
+    return;
+  }
+  popupRoutingConfigured.add(contents);
+
+  contents.setWindowOpenHandler(createWindowOpenHandler({
+    partition,
+    getOpenerUrl: () => contents.getURL(),
+    session: contents.session,
+    openControlledPopup: (url, popupPartition) => createPopupWindow(url, 'Popup', popupPartition),
+    onControlledPopupError: (message) => {
+      console.error('Failed to open controlled popup window:', message);
+    }
+  }));
+
+  // Only the narrowly allowed Claude -> Google authentication path reaches
+  // did-create-window. Give each native auth child the same policy so Google
+  // descendants keep their opener while every non-auth descendant is denied
+  // and redirected through Boardroom's controlled popup shell.
+  contents.on('did-create-window', (childWindow) => {
+    configurePopupRouting(childWindow.webContents, partition);
+  });
+}
+
 // Handle popup windows for OAuth and external links
 ipcMain.handle('open-popup-window', async (event, url, title, partition) => {
   return createPopupWindow(url, title, partition);
@@ -284,14 +313,9 @@ app.on('web-contents-created', (event, contents) => {
   if (contents.getType() === 'webview') {
     console.log('Webview created');
 
-    // Route webview popups through Boardroom's controlled popup shell.
-    contents.setWindowOpenHandler(({ url }) => {
-      console.log(`Webview opening: ${url}`);
-      createPopupWindow(url, 'Popup', getPartitionForWebContents(contents)).catch((error) => {
-        console.error('Failed to open controlled popup window:', error);
-      });
-      return { action: 'deny' };
-    });
+    // Preserve native opener relationships only for Claude's Google sign-in.
+    // All other links use Boardroom's controlled popup shell with URL tools.
+    configurePopupRouting(contents, getPartitionForWebContents(contents));
 
     // Add right-click context menu for links and copy/paste in webviews
     contents.on('context-menu', (event, params) => {
@@ -307,6 +331,14 @@ app.on('web-contents-created', (event, contents) => {
 });
 
 app.whenReady().then(() => {
+  // Gemini can load but stall on generation with Electron's branded identity.
+  // Configure its session before creating webviews; retain the real Chromium
+  // version and platform, and leave every other provider's identity unchanged.
+  const geminiSession = session.fromPartition('persist:gemini');
+  geminiSession.setUserAgent(
+    geminiSession.getUserAgent().replace(/\s+(?:boardroom|Electron)\/[^\s]+/g, '')
+  );
+
   createApplicationMenu();
   createWindow();
 });
