@@ -156,13 +156,13 @@ test('all synchronized runtime helpers exist and resolve without Electron', () =
   assert.doesNotThrow(() => require('../src/lib/popup-controls'));
 });
 
-test('v1.1.1 package metadata is coherent and keeps the public build boundary', () => {
+test('v1.2.0 package metadata is coherent and keeps the public build boundary', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
 
-  assert.equal(pkg.version, '1.1.1');
-  assert.equal(lock.version, '1.1.1');
-  assert.equal(lock.packages[''].version, '1.1.1');
+  assert.equal(pkg.version, '1.2.0');
+  assert.equal(lock.version, '1.2.0');
+  assert.equal(lock.packages[''].version, '1.2.0');
   assert.equal(pkg.license, 'MIT');
   assert.equal(pkg.scripts.test, releaseTestCommand);
   assert.deepEqual(pkg.build.files, ['src/**/*', 'package.json']);
@@ -182,15 +182,16 @@ test('CI tests before both platform builds and publishes tags only', () => {
   assert.equal(workflow.includes('GITHUB_REF_NAME'), true);
 });
 
-test('README documents the v1.1.1 features and unsigned-app guidance', () => {
+test('README documents the v1.2.0 features and unsigned-app guidance', () => {
   const readme = read('README.md');
 
   for (const phrase of [
     'file attachments',
     'Right-click',
     'editable address bar',
-    'Boardroom-1.1.1-universal.dmg',
-    'Boardroom-Setup-1.1.1.exe',
+    'Paste an image',
+    'Boardroom-1.2.0-universal.dmg',
+    'Boardroom-Setup-1.2.0.exe',
     'macOS may show a warning',
     'Windows SmartScreen may show a warning',
     'npm ci',
@@ -459,4 +460,16 @@ test('window-open handler reports invalid and rejected controlled popup results 
     'Unsafe URL was rejected',
     'Popup failed without a window'
   ]);
+});
+
+test('pasted-image helper loads before the renderer script and leaves text paste alone', () => {
+  const html = read('src/index.html');
+  const helperTag = html.indexOf('<script src="./lib/clipboard-image.js"></script>');
+  assert.notEqual(helperTag, -1);
+  assert.ok(helperTag < html.indexOf('const promptInput'));
+  const { pickPastedImage } = require('../src/lib/clipboard-image');
+  const image = { type: 'image/png', size: 10 };
+  const item = { kind: 'file', type: 'image/png', getAsFile: () => image };
+  assert.equal(pickPastedImage({ types: ['Files'], items: [item] }), image);
+  assert.equal(pickPastedImage({ types: ['text/plain', 'Files'], items: [item] }), null);
 });

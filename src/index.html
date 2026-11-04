@@ -10,12 +10,14 @@
       display: flex;
       flex-direction: column;
       height: 100vh;
+      overflow: hidden;
       font-family: system-ui, -apple-system, sans-serif;
     }
 
     #container {
       display: flex;
       flex: 1;
+      min-height: 0;
       gap: 2px;
       background: #333;
       overflow-x: auto;
@@ -238,15 +240,54 @@
 
     webview {
       flex: 1;
+      min-height: 0;
       width: 100%;
       user-select: text;
       -webkit-user-select: text;
     }
 
-    #input-container {
-      padding: 20px;
+    #prompt-divider {
+      flex: 0 0 8px;
       background: #f5f5f5;
       border-top: 1px solid #ddd;
+      box-sizing: border-box;
+      cursor: ns-resize;
+      touch-action: none;
+      position: relative;
+    }
+
+    #prompt-divider::after {
+      content: '';
+      position: absolute;
+      width: 48px;
+      height: 3px;
+      left: calc(50% - 24px);
+      top: 2px;
+      border-radius: 2px;
+      background: #c29d7c;
+    }
+
+    #prompt-divider:hover, #prompt-divider:focus-visible {
+      background: #e8e1d8;
+      outline: none;
+    }
+
+    body.resizing-prompt {
+      cursor: ns-resize;
+      user-select: none;
+    }
+
+    body.resizing-prompt webview {
+      pointer-events: none;
+    }
+
+    #input-container {
+      flex: 0 0 auto;
+      height: 104px;
+      min-height: 104px;
+      box-sizing: border-box;
+      padding: 20px;
+      background: #f5f5f5;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -256,13 +297,16 @@
     #prompt-input {
       width: 66%;
       max-width: 900px;
+      height: calc(100% - 30px);
+      resize: none;
+      line-height: 17px;
       padding: 14px 18px;
       font-size: 14px;
       border: 1px solid #e2e8f0;
       border-radius: 12px;
       font-family: inherit;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      transition: all 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     #prompt-input:focus {
@@ -333,6 +377,20 @@
       display: flex;
     }
 
+    #file-thumb {
+      width: 32px;
+      height: 32px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid #a8d8a8;
+      background: #fff;
+      flex-shrink: 0;
+    }
+
+    #file-thumb[hidden] {
+      display: none;
+    }
+
     #file-remove-btn {
       background: none;
       border: none;
@@ -365,7 +423,6 @@
     <div class="webview-panel" id="chatgpt-panel">
       <div class="nav-controls">
         <button class="new-chat-btn" onclick="newChatAll()">+ New Chat</button>
-        <button class="nav-btn" onclick="debugChatGPT()">🔍</button>
         <button class="nav-btn" onclick="document.getElementById('chatgpt').goBack()">←</button>
         <button class="nav-btn" onclick="document.getElementById('chatgpt').goForward()">→</button>
         <button class="nav-btn" onclick="document.getElementById('chatgpt').reload()">↻</button>
@@ -423,22 +480,28 @@
     </div>
   </div>
 
+  <div id="prompt-divider" role="separator" tabindex="0" aria-label="Resize prompt box"
+    aria-orientation="horizontal" aria-controls="input-container"
+    title="Drag up or down to resize the prompt box; use arrow keys when focused"></div>
   <div id="input-container">
     <button id="attach-btn" title="Attach file">&#x1F4CE;</button>
     <div id="file-indicator">
+      <img id="file-thumb" alt="" hidden>
       <span id="file-name"></span>
       <button id="file-remove-btn" title="Remove attachment">&times;</button>
     </div>
-    <textarea id="prompt-input" placeholder="Type your prompt here... (Cmd+Enter to submit to all)" rows="2"></textarea>
+    <textarea id="prompt-input" placeholder="Type your prompt here... (Cmd+V pastes an image, Cmd+Enter to submit to all)" rows="2"></textarea>
     <button id="submit-btn">Send to All</button>
   </div>
 
+  <script src="./lib/clipboard-image.js"></script>
   <script>
     const promptInput = document.getElementById('prompt-input');
     const submitBtn = document.getElementById('submit-btn');
     const attachBtn = document.getElementById('attach-btn');
     const fileIndicator = document.getElementById('file-indicator');
     const fileNameSpan = document.getElementById('file-name');
+    const fileThumb = document.getElementById('file-thumb');
     const fileRemoveBtn = document.getElementById('file-remove-btn');
     const chatgptView = document.getElementById('chatgpt');
     const claudeView = document.getElementById('claude');
@@ -447,6 +510,70 @@
     const kimiView = document.getElementById('kimi');
     const deepseekView = document.getElementById('deepseek');
     const providerWebviews = [chatgptView, claudeView, geminiView, grokView, kimiView, deepseekView];
+
+    // Resize the shared prompt area without letting provider webviews swallow the drag.
+    const promptDivider = document.getElementById('prompt-divider');
+    const inputContainer = document.getElementById('input-container');
+    const minimumPromptHeight = 104;
+    let promptDrag = null;
+
+    function resizePrompt(height) {
+      const maximum = Math.max(minimumPromptHeight,
+        window.innerHeight - promptDivider.offsetHeight - 160);
+      const boundedHeight = Math.round(Math.min(maximum, Math.max(minimumPromptHeight, height)));
+      inputContainer.style.height = boundedHeight + 'px';
+      promptDivider.setAttribute('aria-valuemin', minimumPromptHeight);
+      promptDivider.setAttribute('aria-valuemax', maximum);
+      promptDivider.setAttribute('aria-valuenow', boundedHeight);
+      promptDivider.setAttribute('aria-valuetext', boundedHeight + ' pixels high');
+    }
+
+    function stopPromptDrag() {
+      if (!promptDrag) return;
+      const pointerId = promptDrag.pointerId;
+      promptDrag = null;
+      document.body.classList.remove('resizing-prompt');
+      if (promptDivider.hasPointerCapture(pointerId)) {
+        promptDivider.releasePointerCapture(pointerId);
+      }
+    }
+
+    promptDivider.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || promptDrag) return;
+      event.preventDefault();
+      promptDivider.focus();
+      promptDrag = {
+        pointerId: event.pointerId,
+        y: event.clientY,
+        height: inputContainer.getBoundingClientRect().height
+      };
+      promptDivider.setPointerCapture(event.pointerId);
+      document.body.classList.add('resizing-prompt');
+    });
+
+    promptDivider.addEventListener('pointermove', (event) => {
+      if (!promptDrag || event.pointerId !== promptDrag.pointerId) return;
+      resizePrompt(promptDrag.height + promptDrag.y - event.clientY);
+    });
+
+    for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      promptDivider.addEventListener(eventName, (event) => {
+        if (promptDrag && event.pointerId === promptDrag.pointerId) stopPromptDrag();
+      });
+    }
+    window.addEventListener('blur', stopPromptDrag);
+    window.addEventListener('resize', () => resizePrompt(inputContainer.getBoundingClientRect().height));
+
+    promptDivider.addEventListener('keydown', (event) => {
+      const height = inputContainer.getBoundingClientRect().height;
+      if (event.key === 'ArrowUp') resizePrompt(height + 24);
+      else if (event.key === 'ArrowDown') resizePrompt(height - 24);
+      else if (event.key === 'Home') resizePrompt(minimumPromptHeight);
+      else if (event.key === 'End') resizePrompt(window.innerHeight);
+      else return;
+      event.preventDefault();
+    });
+    resizePrompt(inputContainer.getBoundingClientRect().height);
 
     // File attachment state
     let attachedFile = null;
@@ -458,16 +585,65 @@
         alert(file.error);
         return;
       }
-      attachedFile = file;
-      fileNameSpan.textContent = file.name + ' (' + formatFileSize(file.size) + ')';
-      fileIndicator.classList.add('visible');
+      setAttachedFile(file);
     });
 
-    fileRemoveBtn.addEventListener('click', () => {
+    function setAttachedFile(file) {
+      attachedFile = file;
+      const label = file.name + ' (' + formatFileSize(file.size) + ')';
+      fileNameSpan.textContent = label;
+      fileNameSpan.hidden = false;
+      // Tiny preview for image attachments (pasted or chosen with the paperclip).
+      // The browser downscales the existing data in place; no extra copy is kept.
+      if (file.mimeType && file.mimeType.startsWith('image/') && file.base64) {
+        fileThumb.src = 'data:' + file.mimeType + ';base64,' + file.base64;
+        fileThumb.title = label;
+        fileThumb.hidden = false;
+        fileNameSpan.hidden = true; // the thumbnail is the label; name stays in the tooltip
+      } else {
+        fileThumb.removeAttribute('src');
+        fileThumb.hidden = true;
+      }
+      fileIndicator.classList.add('visible');
+    }
+
+    function clearAttachedFile() {
       attachedFile = null;
       fileIndicator.classList.remove('visible');
       fileNameSpan.textContent = '';
+      fileThumb.removeAttribute('src');
+      fileThumb.hidden = true;
+    }
+
+    // Cmd+V / Ctrl+V of an image (e.g. a screenshot) into the shared prompt box
+    // becomes the attachment, so it is sent to every visible model with the prompt.
+    promptInput.addEventListener('paste', (e) => {
+      const clipboardImage = window.BoardroomClipboardImage;
+      const imageFile = clipboardImage.pickPastedImage(e.clipboardData);
+      if (!imageFile) return; // ordinary text paste
+
+      e.preventDefault();
+      const reader = new FileReader();
+      reader.onload = () => {
+        let attachment;
+        try {
+          const base64 = clipboardImage.dataUrlToBase64(reader.result);
+          attachment = clipboardImage.buildAttachmentFromImage(imageFile, base64);
+        } catch (error) {
+          alert('Could not read pasted image: ' + error.message);
+          return;
+        }
+        if (attachment.error) {
+          alert(attachment.error);
+          return;
+        }
+        setAttachedFile(attachment);
+      };
+      reader.onerror = () => alert('Could not read pasted image.');
+      reader.readAsDataURL(imageFile);
     });
+
+    fileRemoveBtn.addEventListener('click', clearAttachedFile);
 
     function formatFileSize(bytes) {
       if (bytes < 1024) return bytes + ' B';
@@ -601,51 +777,6 @@
         hideModelDropdown();
       }
     });
-
-    function debugChatGPT() {
-      chatgptView.executeJavaScript(`
-        (function() {
-          const results = {
-            newChatButtons: [],
-            allLinks: []
-          };
-
-          // Look for "New chat" buttons/links
-          const allElements = document.querySelectorAll('a, button');
-          allElements.forEach((el, i) => {
-            const text = el.textContent?.toLowerCase().trim();
-            if (text && text.includes('new')) {
-              results.newChatButtons.push({
-                index: i,
-                tagName: el.tagName,
-                href: el.href,
-                ariaLabel: el.getAttribute('aria-label'),
-                className: el.className,
-                textContent: el.textContent?.trim().substring(0, 100)
-              });
-            }
-          });
-
-          // Also check all links
-          const links = document.querySelectorAll('a[href]');
-          links.forEach((link, i) => {
-            if (i < 20) {  // First 20 links only
-              results.allLinks.push({
-                index: i,
-                href: link.href,
-                textContent: link.textContent?.trim().substring(0, 50)
-              });
-            }
-          });
-
-          return results;
-        })();
-      `).then(result => {
-        // Show alert with debug info
-        alert('ChatGPT Debug:\\n\\nElements with "new": ' + result.newChatButtons.length + '\\n\\nAll links: ' + result.allLinks.length + '\\n\\nFirst link: ' + JSON.stringify(result.allLinks[0]) + '\\n\\nSee console for full details');
-        console.log('=== CHATGPT DEBUG ===', result);
-      });
-    }
 
     function newChatAll() {
       // Create new chat in ChatGPT
@@ -1061,11 +1192,19 @@
       if (isModelVisible('chatgpt')) {
         modelPromises.push((async () => {
           if (file) {
-            await injectFileIntoChatGPT(file);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Never let an attachment failure stop the typed prompt being sent.
+            try {
+              await injectFileIntoChatGPT(file);
+            } catch (error) {
+              console.error('ChatGPT attachment step failed:', error);
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
           }
           if (prompt) {
-            await chatgptView.executeJavaScript(`
+            // Not awaited: the send-button poll can take up to 10s, and waiting for it
+            // would keep the prompt box filled (and re-sendable) until it finishes.
+            // The poll still runs in the ChatGPT page and logs its outcome when done.
+            chatgptView.executeJavaScript(`
             (function() {
               const selectors = [
                 '#prompt-textarea',
@@ -1083,13 +1222,16 @@
 
               if (!input) {
                 console.error('ChatGPT input not found');
-                return;
+                return { at: new Date().toISOString(), input: null, result: 'input not found; prompt not sent' };
               }
 
               console.log('ChatGPT input found:', input.tagName, input.id, input.className);
 
               if (input.tagName === 'TEXTAREA') {
-                input.value = ${JSON.stringify(prompt)};
+                // ChatGPT is a React page: setting .value directly shows the text but
+                // React's state stays empty, so Send stays disabled. Use the native setter.
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                nativeSetter.call(input, ${JSON.stringify(prompt)});
                 input.dispatchEvent(new Event('input', { bubbles: true }));
                 input.dispatchEvent(new Event('change', { bubbles: true }));
               } else if (input.contentEditable === 'true') {
@@ -1097,8 +1239,11 @@
                 input.dispatchEvent(new Event('input', { bubbles: true }));
               }
 
+              const sendLog = { at: new Date().toISOString(), input: input.tagName + '#' + input.id, polls: 0 };
+              return new Promise((resolve) => {
               // Poll for send button to become enabled (file upload may take a while)
               function pollForSendButton(attempts) {
+                sendLog.polls = attempts;
                 const btnSelectors = [
                   'button[data-testid="send-button"]',
                   'button[data-testid="fruitjuice-send-button"]',
@@ -1117,16 +1262,30 @@
                 if (btn && !btn.disabled) {
                   console.log('ChatGPT: Send button ready, clicking (attempt ' + attempts + ')');
                   btn.click();
+                  sendLog.result = 'clicked ' + (btn.getAttribute('data-testid') || btn.getAttribute('aria-label'));
+                  resolve(sendLog);
                 } else if (attempts < 20) {
                   // Retry every 500ms, up to 10 seconds total
                   setTimeout(() => pollForSendButton(attempts + 1), 500);
                 } else {
-                  console.error('ChatGPT: Send button never became enabled after 10s');
+                  // Last resort: press Enter in the chat box, which ChatGPT treats as Send.
+                  const anyBtn = document.querySelector('button[data-testid="send-button"]') ||
+                                 document.querySelector('button[aria-label*="Send" i]');
+                  sendLog.buttonSeen = anyBtn ? { testid: anyBtn.getAttribute('data-testid'), label: anyBtn.getAttribute('aria-label'), disabled: anyBtn.disabled } : null;
+                  input.focus();
+                  for (const type of ['keydown', 'keypress', 'keyup']) {
+                    input.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+                  }
+                  sendLog.result = 'send button never enabled; pressed Enter';
+                  console.error('ChatGPT: Send button never became enabled after 10s; pressed Enter');
+                  resolve(sendLog);
                 }
               }
-              setTimeout(() => pollForSendButton(1), 800);
+              setTimeout(() => pollForSendButton(1), 300);
+              });
             })();
-          `);
+          `).then(sendLog => window.electronAPI.writeDebugFile(sendLog, 'chatgpt-send-debug.json'))
+            .catch(error => console.error('ChatGPT send step failed:', error));
           } else {
             // File-only send
             await chatgptView.executeJavaScript(`
@@ -1452,9 +1611,7 @@
       promptInput.value = '';
       // Clear file attachment after send
       if (file) {
-        attachedFile = null;
-        fileIndicator.classList.remove('visible');
-        fileNameSpan.textContent = '';
+        clearAttachedFile();
       }
     }
 
@@ -1512,90 +1669,123 @@
       `);
     }
 
-    // Inject a file into ChatGPT using DataTransfer API
+    // Inject a file into ChatGPT.
+    // ChatGPT has several hidden <input type="file"> elements, and the first one
+    // is not always wired to the composer. So each method is tried in turn and
+    // checked: did an attachment preview actually appear in the composer?
+    // Every attempt is written to test-results/chatgpt-attach-debug.json.
     async function injectFileIntoChatGPT(file) {
-      const base64 = file.base64;
-      const fileName = file.name;
-      const mimeType = file.mimeType;
+      const report = await chatgptView.executeJavaScript(`
+        (async function() {
+          const log = { at: new Date().toISOString(), url: location.href, fileName: ${JSON.stringify(file.name)},
+                        mimeType: ${JSON.stringify(file.mimeType)}, size: ${JSON.stringify(file.size)}, attempts: [] };
+          const wait = (ms) => new Promise(r => setTimeout(r, ms));
+          try {
+            const binaryStr = atob(${JSON.stringify(file.base64)});
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+            const mimeType = ${JSON.stringify(file.mimeType)};
+            const isImage = mimeType.startsWith('image/');
+            const makeFile = () => new File([new Blob([bytes], { type: mimeType })], ${JSON.stringify(file.name)}, { type: mimeType });
 
-      return chatgptView.executeJavaScript(`
-        (function() {
-          return new Promise((resolve) => {
-            try {
-              // Decode base64 to binary
-              const binaryStr = atob(${JSON.stringify(base64)});
-              const bytes = new Uint8Array(binaryStr.length);
-              for (let i = 0; i < binaryStr.length; i++) {
-                bytes[i] = binaryStr.charCodeAt(i);
-              }
-              const blob = new Blob([bytes], { type: ${JSON.stringify(mimeType)} });
-              const fileObj = new File([blob], ${JSON.stringify(fileName)}, { type: ${JSON.stringify(mimeType)} });
+            const composer = document.querySelector('#prompt-textarea') ||
+                             document.querySelector('[contenteditable="true"]') ||
+                             document.querySelector('textarea');
+            const form = (composer && composer.closest('form')) || document.querySelector('form') || document.body;
+            log.composer = composer ? (composer.tagName + '#' + composer.id) : null;
+            log.formFound = form !== document.body;
 
-              // Try approach 1: Find file input and set files via DataTransfer
-              const fileInput = document.querySelector('input[type="file"]');
-              if (fileInput) {
-                console.log('ChatGPT: Found file input, setting files via DataTransfer');
-                const dt = new DataTransfer();
-                dt.items.add(fileObj);
-                fileInput.files = dt.files;
-                fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                console.log('ChatGPT: File set via DataTransfer on input');
-                resolve('input');
-                return;
-              }
-
-              // Try approach 2: Dispatch drop event on the chat area
-              console.log('ChatGPT: No file input found, trying drop event');
-              const dropTarget = document.querySelector('#prompt-textarea') ||
-                                document.querySelector('[contenteditable="true"]') ||
-                                document.querySelector('main') ||
-                                document.body;
-
-              const dt2 = new DataTransfer();
-              dt2.items.add(fileObj);
-
-              const dragEnterEvent = new DragEvent('dragenter', {
-                bubbles: true, cancelable: true, dataTransfer: dt2
-              });
-              const dragOverEvent = new DragEvent('dragover', {
-                bubbles: true, cancelable: true, dataTransfer: dt2
-              });
-              const dropEvent = new DragEvent('drop', {
-                bubbles: true, cancelable: true, dataTransfer: dt2
-              });
-
-              dropTarget.dispatchEvent(dragEnterEvent);
-              dropTarget.dispatchEvent(dragOverEvent);
-              dropTarget.dispatchEvent(dropEvent);
-              console.log('ChatGPT: Drop event dispatched on', dropTarget.tagName);
-
-              // Try approach 3: Paste event as fallback
-              setTimeout(() => {
-                console.log('ChatGPT: Also trying paste event as fallback');
-                const pasteTarget = document.querySelector('#prompt-textarea') ||
-                                   document.querySelector('[contenteditable="true"]') ||
-                                   document.activeElement;
-
-                const clipboardData = new DataTransfer();
-                clipboardData.items.add(fileObj);
-
-                const pasteEvent = new ClipboardEvent('paste', {
-                  bubbles: true,
-                  cancelable: true,
-                  clipboardData: clipboardData
-                });
-                pasteTarget.dispatchEvent(pasteEvent);
-                console.log('ChatGPT: Paste event dispatched');
-                resolve('drop+paste');
-              }, 500);
-
-            } catch(e) {
-              console.error('ChatGPT: File injection error:', e);
-              resolve('error: ' + e.message);
+            // Rough count of attachment previews in the composer area.
+            function attachmentCount() {
+              const area = form.closest('[class*="composer"]') || form.parentElement || form;
+              return area.querySelectorAll('img, [data-testid*="attachment" i], [data-testid*="file" i], [aria-label*="Remove" i], [aria-label*="file" i]').length;
             }
-          });
+            const before = attachmentCount();
+            log.previewCountBefore = before;
+
+            async function attached(label) {
+              for (let i = 0; i < 10; i++) {
+                await wait(300);
+                const now = attachmentCount();
+                if (now > before) { log.attempts.push({ method: label, ok: true, previewCount: now }); return true; }
+              }
+              log.attempts.push({ method: label, ok: false, previewCount: attachmentCount() });
+              return false;
+            }
+
+            // A slow upload can make the preview appear after attached() gave up.
+            // Check again before each fallback so the file is not attached twice.
+            function lateSuccess(nextLabel) {
+              const now = attachmentCount();
+              if (now > before) {
+                log.attempts.push({ method: 'late preview (skipped ' + nextLabel + ')', ok: true, previewCount: now });
+                return true;
+              }
+              return false;
+            }
+
+            const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+            log.fileInputs = inputs.map((el, i) => ({ i, id: el.id, accept: el.accept, multiple: el.multiple,
+              inForm: form.contains(el), testid: el.getAttribute('data-testid') }));
+
+            // Method 1: drop onto the composer. This is what worked on
+            // ChatGPT on 2026-11-04 (paste did not, and there were no file inputs).
+            const dropTarget = composer || form;
+            const dd = new DataTransfer();
+            dd.items.add(makeFile());
+            let dropConsumed = false;
+            for (const type of ['dragenter', 'dragover', 'drop']) {
+              const notCancelled = dropTarget.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dd }));
+              if (type === 'drop') dropConsumed = !notCancelled;
+            }
+            // preventDefault() on the drop means a page handler took the file.
+            log.dropConsumed = dropConsumed;
+            if (await attached('drop-on-composer')) return log;
+            if (dropConsumed) {
+              // Give a taken-but-slow upload more time before trying anything else.
+              if (await attached('drop-on-composer (extra wait)')) return log;
+            }
+
+            // Method 2 (images): behave like a real Cmd+V on the composer.
+            if (isImage && composer) {
+              if (lateSuccess('paste-on-composer')) return log;
+              composer.focus();
+              const cd = new DataTransfer();
+              cd.items.add(makeFile());
+              composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: cd }));
+              if (await attached('paste-on-composer')) return log;
+            }
+
+            // Method 3: each file input, preferring ones that accept this type, then ones inside the composer form.
+            const accepts = (el) => !el.accept || el.accept.split(',').some(a => {
+              a = a.trim(); return a === mimeType || (a.endsWith('/*') && mimeType.startsWith(a.slice(0, -1))) || a.startsWith('.');
+            });
+            const ranked = inputs.slice().sort((a, b) =>
+              (accepts(b) - accepts(a)) || (form.contains(b) - form.contains(a)));
+            for (const el of ranked) {
+              if (lateSuccess('file-input #' + inputs.indexOf(el))) return log;
+              const dt = new DataTransfer();
+              dt.items.add(makeFile());
+              el.files = dt.files;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              if (await attached('file-input #' + inputs.indexOf(el) + ' accept=' + el.accept)) return log;
+            }
+          } catch (e) {
+            log.error = String(e && e.message || e);
+          }
+          return log;
         })();
-      `);
+      `).catch(error => ({ error: 'executeJavaScript failed: ' + error.message }));
+
+      report.success = Array.isArray(report.attempts) && report.attempts.some(a => a.ok);
+      console.log('ChatGPT attach report:', report);
+      try {
+        await window.electronAPI.writeDebugFile(report, 'chatgpt-attach-debug.json');
+      } catch (error) {
+        console.error('Could not write ChatGPT attach debug file:', error);
+      }
+      return report;
     }
 
     // Inject a file into Claude using DataTransfer API
