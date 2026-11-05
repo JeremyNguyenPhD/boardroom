@@ -156,13 +156,13 @@ test('all synchronized runtime helpers exist and resolve without Electron', () =
   assert.doesNotThrow(() => require('../src/lib/popup-controls'));
 });
 
-test('v1.2.0 package metadata is coherent and keeps the public build boundary', () => {
+test('v1.2.1 package metadata is coherent and keeps the public build boundary', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
 
-  assert.equal(pkg.version, '1.2.0');
-  assert.equal(lock.version, '1.2.0');
-  assert.equal(lock.packages[''].version, '1.2.0');
+  assert.equal(pkg.version, '1.2.1');
+  assert.equal(lock.version, '1.2.1');
+  assert.equal(lock.packages[''].version, '1.2.1');
   assert.equal(pkg.license, 'MIT');
   assert.equal(pkg.scripts.test, releaseTestCommand);
   assert.deepEqual(pkg.build.files, ['src/**/*', 'package.json']);
@@ -182,7 +182,7 @@ test('CI tests before both platform builds and publishes tags only', () => {
   assert.equal(workflow.includes('GITHUB_REF_NAME'), true);
 });
 
-test('README documents the v1.2.0 features and unsigned-app guidance', () => {
+test('README documents the v1.2.1 features and unsigned-app guidance', () => {
   const readme = read('README.md');
 
   for (const phrase of [
@@ -190,8 +190,10 @@ test('README documents the v1.2.0 features and unsigned-app guidance', () => {
     'Right-click',
     'editable address bar',
     'Paste an image',
-    'Boardroom-1.2.0-universal.dmg',
-    'Boardroom-Setup-1.2.0.exe',
+    'New Chat',
+    'one Boardroom window',
+    'Boardroom-1.2.1-universal.dmg',
+    'Boardroom-Setup-1.2.1.exe',
     'macOS may show a warning',
     'Windows SmartScreen may show a warning',
     'npm ci',
@@ -216,6 +218,8 @@ function runStartup(userAgent) {
     app: {
       name: 'boardroom',
       on() {},
+      quit() {},
+      requestSingleInstanceLock: () => true,
       whenReady: () => ({ then: (callback) => { ready = callback; } })
     },
     session: {
@@ -472,4 +476,18 @@ test('pasted-image helper loads before the renderer script and leaves text paste
   const item = { kind: 'file', type: 'image/png', getAsFile: () => image };
   assert.equal(pickPastedImage({ types: ['Files'], items: [item] }), image);
   assert.equal(pickPastedImage({ types: ['text/plain', 'Files'], items: [item] }), null);
+});
+
+test('New Chat clears ChatGPT\'s saved new-chat draft so the old prompt does not reappear', () => {
+  const html = read('src/index.html');
+  assert.match(html, /async function newChatGPTChat\(\)/);
+  assert.match(html, /newChatGPTChat\(\);/);
+  assert.match(html, /composer-prompt-drafts-v2/);
+  assert.match(html, /newChatKey: 'new-conversation'/);
+});
+
+test('a second launch hands focus to the running Boardroom instead of opening another', () => {
+  const main = read('src/main.js');
+  assert.match(main, /app\.requestSingleInstanceLock\(\)/);
+  assert.match(main, /app\.on\('second-instance'/);
 });

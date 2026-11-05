@@ -21,6 +21,24 @@ const PROVIDER_PARTITIONS = new Set([
 const FALLBACK_POPUP_PARTITION = 'persist:popup';
 const popupRoutingConfigured = new WeakSet();
 
+// Only one Boardroom may run at a time. Every copy shares the same saved
+// logins and site data (~/Library/Application Support/boardroom), and a second
+// copy cannot open that locked data, so it loads providers slowly or broken.
+// A second launch therefore quits and brings the existing window forward.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+let mainWindow = null;
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 2400,
@@ -34,6 +52,7 @@ function createWindow() {
   });
 
   win.loadFile(__dirname + '/index.html');
+  mainWindow = win;
 
   // Configure webview settings when they're attached
   // This is necessary for file uploads to work properly in webviews
@@ -331,6 +350,8 @@ app.on('web-contents-created', (event, contents) => {
 });
 
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return;
+
   // Gemini can load but stall on generation with Electron's branded identity.
   // Configure its session before creating webviews; retain the real Chromium
   // version and platform, and leave every other provider's identity unchanged.
@@ -350,7 +371,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (hasSingleInstanceLock && BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
