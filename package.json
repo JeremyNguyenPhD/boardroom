@@ -1,6 +1,6 @@
 {
   "name": "boardroom",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Split-screen interface for ChatGPT, Claude, Gemini, Grok, Kimi, and DeepSeek",
   "main": "src/main.js",
   "scripts": {

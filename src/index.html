@@ -778,16 +778,190 @@
       }
     });
 
-    function newChatAll() {
-      // Create new chat in ChatGPT
-      const chatgptUrl = chatgptView.getURL();
-      if (chatgptUrl && chatgptUrl !== 'https://chatgpt.com/') {
+    // ChatGPT saves unsent "new chat" text and puts it back into the message box on
+    // every load. Text Boardroom types in is never cleared from there, so without this
+    // the last prompt reappears after New Chat. ChatGPT has used two places for this:
+    //  - the current app: IndexedDB database "codex-browser-host", store "records",
+    //    record "codex.browser.persistedAtomState", entry
+    //    composer-prompt-drafts-v2 -> new-conversation (seen 5 Nov 2026);
+    //  - the older lightweight home page: two localStorage keys.
+    // Only the new-chat draft is removed; drafts inside existing conversations are kept.
+    const CHATGPT_DRAFT_KEYS = [
+      'oai/apps/lightweight-web/composerDraft/v1',
+      'oai/apps/lightweight-web/composerDraft/owner.v2'
+    ];
+    const CHATGPT_DRAFT_DB = {
+      name: 'codex-browser-host',
+      store: 'records',
+      record: 'codex.browser.persistedAtomState',
+      draftsKey: 'composer-prompt-drafts-v2',
+      newChatKey: 'new-conversation'
+    };
+
+    // Resolves to { removed: [where], drafts: [plain text of each removed draft] }.
+    const CHATGPT_CLEAR_DRAFT_SCRIPT = `
+      (async function() {
+        const keys = ${JSON.stringify(CHATGPT_DRAFT_KEYS)};
+        const cfg = ${JSON.stringify(CHATGPT_DRAFT_DB)};
+        const removed = [];
+        const drafts = [];
+
+        for (const key of keys) {
+          const value = localStorage.getItem(key);
+          if (value !== null) {
+            if (key === keys[0] && value.trim()) drafts.push(value);
+            localStorage.removeItem(key);
+            removed.push('localStorage:' + key);
+          }
+        }
+
+        // Plain text of a saved rich-text document ({ type, text, content: [...] }).
+        function docText(node) {
+          if (!node || typeof node !== 'object') return '';
+          if (typeof node.text === 'string') return node.text;
+          return (node.content || []).map(docText).join(node.type === 'doc' ? '\\n' : '');
+        }
+
+        try {
+          const known = indexedDB.databases ? (await indexedDB.databases()).map(d => d.name) : [cfg.name];
+          if (known.includes(cfg.name)) {
+            const db = await new Promise((resolve, reject) => {
+              const req = indexedDB.open(cfg.name);
+              req.onsuccess = () => resolve(req.result);
+              req.onerror = () => reject(req.error);
+            });
+            try {
+              if (db.objectStoreNames.contains(cfg.store)) {
+                const tx = db.transaction(cfg.store, 'readwrite');
+                const store = tx.objectStore(cfg.store);
+                const state = await new Promise((resolve, reject) => {
+                  const req = store.get(cfg.record);
+                  req.onsuccess = () => resolve(req.result);
+                  req.onerror = () => reject(req.error);
+                });
+                const saved = state && state[cfg.draftsKey];
+                if (saved && saved[cfg.newChatKey]) {
+                  const entry = saved[cfg.newChatKey];
+                  const text = docText(entry.prompt && entry.prompt.document);
+                  if (text.trim()) drafts.push(text);
+                  delete saved[cfg.newChatKey];
+                  store.put(state, cfg.record);
+                  await new Promise((resolve, reject) => {
+                    tx.oncomplete = resolve;
+                    tx.onerror = () => reject(tx.error);
+                    tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
+                  });
+                  removed.push('indexedDB:' + cfg.draftsKey + '/' + cfg.newChatKey);
+                }
+              }
+            } finally {
+              db.close();
+            }
+          }
+        } catch (error) {
+          removed.push('indexedDB failed: ' + error.message);
+        }
+
+        return { removed, drafts };
+      })()
+    `;
+
+    // After the new page loads: clear the saved draft again (the old page may have
+    // re-saved it while closing) and, if the message box still shows an old draft,
+    // empty it. Only text matching a removed draft is cleared, never text typed after
+    // New Chat.
+    function chatgptEmptyComposerScript(oldDrafts) {
+      return `
+      (async function() {
+        const cleared = await ${CHATGPT_CLEAR_DRAFT_SCRIPT.trim()};
+        // Whitespace is ignored: the message box's textContent joins paragraphs with no
+        // newline, while the saved draft separates them.
+        const norm = t => String(t).replace(/\\s+/g, '');
+        const drafts = ${JSON.stringify(oldDrafts || [])}.concat(cleared.drafts)
+          .map(norm)
+          .filter(Boolean);
+        const result = { removedAfterLoad: cleared.removed, clearedComposer: false };
+        if (drafts.length === 0) return Object.assign(result, { reason: 'no saved draft' });
+        return new Promise((resolve) => {
+          let tries = 0;
+          function check() {
+            const input = document.querySelector('#prompt-textarea') ||
+                          document.querySelector('textarea') ||
+                          document.querySelector('[contenteditable="true"]');
+            const text = input ? (input.tagName === 'TEXTAREA' ? input.value : input.textContent) : '';
+            if (input && drafts.includes(norm(text))) {
+              if (input.tagName === 'TEXTAREA') {
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                nativeSetter.call(input, '');
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+              } else {
+                input.focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('delete', false, null);
+              }
+              resolve(Object.assign(result, { clearedComposer: true, clearedChars: text.length, tries }));
+            } else if (tries++ < 10) {
+              setTimeout(check, 300);
+            } else {
+              resolve(Object.assign(result, { composerFound: !!input, composerEmpty: !norm(text), tries }));
+            }
+          }
+          check();
+        });
+      })()
+    `;
+    }
+
+    async function newChatGPTChat() {
+      const report = { at: new Date().toISOString(), fromUrl: chatgptView.getURL() };
+      let oldDrafts = [];
+      try {
+        // Never let a stuck page stop New Chat from navigating.
+        const before = await Promise.race([
+          chatgptView.executeJavaScript(CHATGPT_CLEAR_DRAFT_SCRIPT),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), 3000))
+        ]);
+        report.removedBeforeLoad = before.removed;
+        report.draftsFound = before.drafts.length;
+        oldDrafts = before.drafts;
+      } catch (error) {
+        report.removedBeforeLoad = 'failed: ' + error.message;
+      }
+
+      // If this load fails, drop the listener so it cannot fire on a later, unrelated load.
+      // Subframe failures and aborts (-3, the load was replaced by another) are ignored:
+      // the replacing load still ends in did-finish-load.
+      const onFail = (event) => {
+        if (event.isMainFrame === false || event.errorCode === -3) return;
+        chatgptView.removeEventListener('did-fail-load', onFail);
+        chatgptView.removeEventListener('did-finish-load', onLoad);
+        report.afterLoad = 'load failed: ' + event.errorDescription;
+        window.electronAPI.writeDebugFile(report, 'chatgpt-newchat-debug.json');
+      };
+      const onLoad = async () => {
+        chatgptView.removeEventListener('did-fail-load', onFail);
+        try {
+          Object.assign(report, await chatgptView.executeJavaScript(chatgptEmptyComposerScript(oldDrafts)));
+        } catch (error) {
+          report.afterLoad = 'failed: ' + error.message;
+        }
+        window.electronAPI.writeDebugFile(report, 'chatgpt-newchat-debug.json');
+      };
+      chatgptView.addEventListener('did-finish-load', onLoad, { once: true });
+      chatgptView.addEventListener('did-fail-load', onFail);
+
+      if (report.fromUrl && report.fromUrl !== 'https://chatgpt.com/') {
         chatgptView.loadURL('https://chatgpt.com/');
         console.log('Navigated to new chat in ChatGPT');
       } else {
         chatgptView.reload();
         console.log('Reloaded ChatGPT to start new chat');
       }
+    }
+
+    function newChatAll() {
+      // Create new chat in ChatGPT (clears its saved draft first; see above)
+      newChatGPTChat();
 
       // Create new chat in Claude
       const claudeUrl = claudeView.getURL();
